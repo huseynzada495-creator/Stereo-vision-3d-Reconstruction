@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+
+# VS Code
+.vscode/*.log
+
+# Large data
+data/raw/videos/
+data/intermediate/
+outputs/
+runs/
+checkpoints/
+logs/
+
+# OS
+.DS_Store
+Thumbs.db

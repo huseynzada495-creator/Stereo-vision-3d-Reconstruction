@@ -1,0 +1,13 @@
+Stage 3: Rectification
+
+Purpose:
+Warp the stereo images so corresponding points lie on the same horizontal scanline.
+
+Saved outputs:
+- rectified_left.jpg
+- rectified_right.jpg
+- rectified_left_lines.jpg
+- rectified_right_lines.jpg
+
+Key idea:
+Rectification reduces correspondence search from 2D to 1D.

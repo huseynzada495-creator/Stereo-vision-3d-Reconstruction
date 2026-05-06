@@ -1,0 +1,13 @@
+Stage 1: Mono Camera Calibration
+
+Purpose:
+Calibrate the single camera using checkerboard images.
+
+Saved outputs:
+- camera_matrix.npy
+- dist_coeffs.npy
+- report.json
+- detected checkerboard corners
+
+Key idea:
+The calibration estimates the intrinsic matrix and lens distortion so later stereo processing is more accurate.

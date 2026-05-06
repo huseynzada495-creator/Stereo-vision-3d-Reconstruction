@@ -1,0 +1,10 @@
+Stage 5: 3D Reconstruction
+
+Purpose:
+Reproject disparity into 3D to form a point cloud.
+
+Saved outputs:
+- pointcloud.ply
+
+Key idea:
+Disparity is converted into approximate 3D coordinates using the calibrated focal length and stereo baseline assumptions.

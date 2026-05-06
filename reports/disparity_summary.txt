@@ -1,0 +1,10 @@
+Stage 4: Disparity
+
+Purpose:
+Compute pixel displacement between the rectified left and right images.
+
+Saved outputs:
+- disparity.jpg
+
+Key idea:
+Larger disparity corresponds to closer points, and smaller disparity corresponds to farther points.

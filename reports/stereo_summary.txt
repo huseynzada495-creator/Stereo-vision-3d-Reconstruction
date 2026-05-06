@@ -1,0 +1,16 @@
+Stage 2: Stereo / Two-View Geometry
+
+Purpose:
+Estimate geometric relationship between the left and right views.
+
+Saved outputs:
+- matches.jpg
+- epilines_left.jpg
+- epilines_right.jpg
+- F.npy
+- E.npy
+- R.npy
+- T.npy
+
+Key idea:
+Feature correspondences are matched between the two images, and the epipolar geometry is estimated.

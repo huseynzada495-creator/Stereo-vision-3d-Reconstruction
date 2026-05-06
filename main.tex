@@ -1,0 +1,474 @@
+% main_trimmed.txt
+% Rename to main.tex before compiling, or upload to Overleaf as main.tex.
+% Keep references.bib in the same folder.
+% Keep the image folders exactly as listed in image_placement_checklist_trimmed.txt.
+
+\documentclass[11pt,a4paper]{article}
+
+% ------------------------------------------------------------
+% Packages
+% ------------------------------------------------------------
+\usepackage[margin=0.85in]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{siunitx}
+\usepackage{enumitem}
+\usepackage{placeins}
+
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+\setlist[itemize]{noitemsep,topsep=2pt}
+\setlist[enumerate]{noitemsep,topsep=2pt}
+\captionsetup{font=small,labelfont=bf}
+\sisetup{round-mode=places,round-precision=3}
+
+% Safe image include: the report still compiles even if an image is missing.
+\newcommand{\safeimage}[3]{%
+\begin{figure}[H]
+\centering
+\IfFileExists{#1}{\includegraphics[width=#2\textwidth]{#1}}{\fbox{\parbox{0.88\textwidth}{Missing image: \texttt{#1}}}}
+\caption{#3}
+\end{figure}
+}
+\newcommand{\mat}[1]{\mathbf{#1}}
+
+\title{\textbf{Stereo Vision-Based 3D Reconstruction\\Calibration, Rectification, Disparity Estimation and Point Cloud Generation}}
+\author{Student Project Report}
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report presents a complete stereo vision pipeline for metric 3D reconstruction. The system uses checkerboard-based stereo calibration, stereo rectification, disparity estimation, disparity refinement, and 3D reprojection. The final calibration used 32 valid stereo checkerboard pairs at a resolution of \(1280 \times 720\) pixels and achieved a stereo RMS reprojection error of 0.1711 pixels. Disparity was computed using several variants: raw, WLS-filtered, clean, filled, dense, and dense-filled. The selected final 3D reconstruction used the filled disparity map and produced 449,869 3D points from 921,600 image pixels, giving 48.81\% final coverage. The report includes the measured calibration matrices, distortion coefficients, extrinsic geometry, rectified projection matrices, reprojection matrix, disparity statistics, point-cloud statistics, qualitative outputs, and error analysis.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Stereo vision estimates 3D structure from two images captured from different viewpoints. After calibration and rectification, corresponding points should lie on the same horizontal scanline, reducing the correspondence search to a one-dimensional problem. The final depth is obtained from disparity using the camera focal length and stereo baseline.
+
+The implemented pipeline consisted of:
+\begin{enumerate}
+    \item stereo checkerboard acquisition and calibration;
+    \item stereo geometry estimation using \(R\), \(T\), \(F\), and \(E\);
+    \item stereo rectification and validation with horizontal epipolar lines;
+    \item disparity estimation and refinement;
+    \item disparity-to-depth conversion and 3D point-cloud reconstruction.
+\end{enumerate}
+
+The goal was not only to produce a point cloud, but to document the full mathematical and experimental path from calibration to reconstruction.
+
+% ============================================================
+\section{Mathematical Background}
+% ============================================================
+
+\subsection{Camera Projection}
+
+A pinhole camera maps a 3D point \(\mat{X}=[X,Y,Z,1]^T\) to an image point \(\mat{x}=[u,v,1]^T\) using
+\begin{equation}
+    \lambda \mat{x} = \mat{P}\mat{X},
+\end{equation}
+where \(\lambda\) is a projective scale factor. The camera projection matrix is
+\begin{equation}
+    \mat{P} = \mat{K}[\mat{R}\mid\mat{t}],
+\end{equation}
+where \(\mat{K}\) contains intrinsic parameters and \([\mat{R}\mid\mat{t}]\) contains extrinsic parameters. The intrinsic matrix has the form
+\begin{equation}
+\mat{K}=\begin{bmatrix}
+    f_x & 0 & c_x \\
+    0 & f_y & c_y \\
+    0 & 0 & 1
+\end{bmatrix}.
+\end{equation}
+
+\subsection{Epipolar Geometry and Rectification}
+
+For corresponding points \(\mat{x}_1\) and \(\mat{x}_2\), epipolar geometry is described by
+\begin{equation}
+    \mat{x}_2^T \mat{F}\mat{x}_1 = 0,
+\end{equation}
+where \(\mat{F}\) is the fundamental matrix. For calibrated cameras, the essential matrix \(\mat{E}\) represents the same constraint in normalized camera coordinates.
+
+Rectification transforms both images so that epipolar lines become horizontal and conjugate points have the same vertical coordinate. This is the key step that makes dense stereo matching practical. The rectification approach used in this report follows the calibrated rectification concept described by Fusiello, Trucco, and Verri, where rectified images are interpreted as being acquired by a new stereo rig obtained by rotating the original cameras about their optical centres \cite{fusiello2000compact,fusiello1998tutorial}. In calibrated form, rectifying homographies can be expressed as
+\begin{equation}
+    \mat{H}_1 = \mat{K}_1\mat{R}_{rect}\mat{R}_1^T\mat{K}_1^{-1},\qquad
+    \mat{H}_2 = \mat{K}_2\mat{R}_{rect}\mat{R}_2^T\mat{K}_2^{-1}.
+\end{equation}
+
+\subsection{Disparity, Depth and Reprojection}
+
+After rectification, disparity is the horizontal shift between matching pixels:
+\begin{equation}
+    d = x_L - x_R.
+\end{equation}
+Depth is inversely proportional to disparity:
+\begin{equation}
+    Z = \frac{fB}{d},
+\end{equation}
+where \(f\) is focal length, \(B\) is baseline, and \(d\) is disparity. A small disparity error therefore causes a larger depth error for distant points.
+
+The final 3D coordinates were computed using the reprojection matrix \(\mat{Q}\):
+\begin{equation}
+    \begin{bmatrix}X'\\Y'\\Z'\\W'\end{bmatrix}
+    =
+    \mat{Q}
+    \begin{bmatrix}x\\y\\d\\1\end{bmatrix},
+    \qquad
+    X=\frac{X'}{W'},\quad Y=\frac{Y'}{W'},\quad Z=\frac{Z'}{W'}.
+\end{equation}
+
+% ============================================================
+\section{Implementation Pipeline}
+% ============================================================
+
+The final implementation used the scripts summarized in Table~\ref{tab:scripts}. The pipeline was kept modular so that calibration, rectification, disparity estimation, and 3D reconstruction could be evaluated separately.
+
+\begin{table}[H]
+\centering
+\caption{Main scripts used in the final reconstruction pipeline.}
+\label{tab:scripts}
+\begin{tabular}{p{0.37\textwidth}p{0.55\textwidth}}
+\toprule
+\textbf{Script} & \textbf{Purpose} \\
+\midrule
+\texttt{calibrate\_stereo\_metric.py} & Performs metric stereo calibration and saves \(K_1,K_2,D_1,D_2,R,T,E,F,R_1,R_2,P_1,P_2,Q\). \\
+\texttt{stereo\_depth\_rectified.py} & Computes raw, WLS, clean, filled, dense, and dense-filled disparity maps from rectified stereo images. \\
+\texttt{reconstruct\_3d.py} & Converts disparity into a 3D point cloud and applies coverage, gradient, table, Z-clamp, and optional filtering logic. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The final report assets were saved in \texttt{report\_assets\_final/}. Calibration outputs were stored in \texttt{report\_assets\_final/calibration/}, while rectification and disparity outputs were stored in \texttt{report\_assets\_final/stereo\_depth/}.
+
+% ============================================================
+\section{Camera Calibration Results}
+% ============================================================
+
+\subsection{Calibration Setup}
+
+The final stereo calibration used 32 valid checkerboard pairs. The image size was \(1280\times720\), the checkerboard pattern was \(5\times4\), and the square size was \SI{25}{mm}. Table~\ref{tab:calib_setup} summarizes the setup.
+
+\begin{table}[H]
+\centering
+\caption{Stereo calibration setup.}
+\label{tab:calib_setup}
+\begin{tabular}{lc}
+\toprule
+\textbf{Quantity} & \textbf{Value} \\
+\midrule
+Valid stereo pairs & 32 \\
+Image size & \(1280\times720\) pixels \\
+Checkerboard pattern & \(5\times4\) \\
+Square size & \SI{25}{mm} \\
+Left RMS error & 0.1368 \\
+Right RMS error & 0.1179 \\
+Stereo RMS error & 0.1711 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The low RMS values indicate that the checkerboard detections and camera model fit were accurate enough for reliable stereo rectification and reconstruction.
+
+\subsection{Intrinsic and Distortion Parameters}
+
+The measured camera intrinsic matrices were:
+\begin{equation}
+\mat{K}_1=egin{bmatrix}
+1236.52 & 0 & 633.98 \\
+0 & 1229.40 & 296.19 \\
+0 & 0 & 1
+\end{bmatrix},\qquad
+\mat{K}_2=egin{bmatrix}
+1200.69 & 0 & 632.37 \\
+0 & 1194.16 & 313.15 \\
+0 & 0 & 1
+\end{bmatrix}.
+\end{equation}
+
+The distortion vectors were:
+\begin{equation}
+\mat{D}_1=[0.2397,\;-3.0154,\;-0.0206,\;-0.0064,\;7.8938],
+\end{equation}
+\begin{equation}
+\mat{D}_2=[0.1050,\;1.4265,\;-0.0123,\;0.0017,\;-17.9173].
+\end{equation}
+These coefficients were used to undistort the stereo images before rectification.
+
+% ============================================================
+\section{Stereo Geometry and Rectification}
+% ============================================================
+
+\subsection{Extrinsic Geometry}
+
+Stereo calibration estimated the relative rotation and translation between the two cameras as:
+\begin{equation}
+\mat{R}=\begin{bmatrix}
+0.9984 & -0.0179 & 0.0536 \\
+0.0217 & 0.9972 & -0.0713 \\
+-0.0522 & 0.0724 & 0.9960
+\end{bmatrix},
+\end{equation}
+\begin{equation}
+\mat{T}=\begin{bmatrix}
+42.1241\\
+-1.5929\\
+-13.3105
+\end{bmatrix}\;\text{mm}.
+\end{equation}
+The dominant translation is along the horizontal direction, with an approximate physical baseline of \SI{42}{mm}. This is consistent with the rectified projection matrix baseline estimate.
+
+\subsection{Rectified Projection Matrices}
+
+After rectification, the projection matrices were:
+\begin{equation}
+\mat{P}_1=\begin{bmatrix}
+1236.71 & 0 & 1082.71 & 0 \\
+0 & 1236.71 & 313.85 & 0 \\
+0 & 0 & 1 & 0
+\end{bmatrix},
+\end{equation}
+\begin{equation}
+\mat{P}_2=\begin{bmatrix}
+1236.71 & 0 & 1082.71 & 54669.74 \\
+0 & 1236.71 & 313.85 & 0 \\
+0 & 0 & 1 & 0
+\end{bmatrix}.
+\end{equation}
+
+The rectified focal length is therefore approximately \(f=1236.71\) pixels. From \(P_2\), the horizontal translation term gives a baseline estimate of
+\begin{equation}
+    B \approx \frac{54669.74}{1236.71} \approx \SI{44.21}{mm},
+\end{equation}
+which is close to the measured translation magnitude in the stereo calibration output.
+
+\subsection{Rectification Validation}
+
+\safeimage{report_assets_final/calibration/rectification_check.jpg}{0.82}{Final calibration rectification check produced by \texttt{calibrate\_stereo\_metric.py}.}
+
+\safeimage{report_assets_final/stereo_depth/rectified_left_lines.jpg}{0.75}{Rectified left image with horizontal guide lines. Successful rectification should align corresponding points along these scanlines.}
+
+The visual rectification checks confirm that the images were transformed into a common coordinate system where stereo matching can be performed mainly along horizontal rows.
+
+% ============================================================
+\section{Disparity Estimation Results}
+% ============================================================
+
+\subsection{Input Pair and Matching Features}
+
+The final disparity run used the pair \texttt{left\_5.jpg} and \texttt{right\_5.jpg}. The image shape was \(720\times1280\times3\). Feature matching reported:
+\begin{itemize}
+    \item SIFT keypoints: 1860 left, 1381 right, 338 good matches;
+    \item ORB keypoints: 4999 left, 4953 right, 1428 good matches.
+\end{itemize}
+Both WLS filtering and dense WLS filtering were enabled.
+
+\safeimage{report_assets_final/stereo_depth/sift_matches_rectified.jpg}{0.82}{SIFT matches on the rectified stereo pair.}
+
+\subsection{Disparity Statistics}
+
+Table~\ref{tab:disp_stats} summarizes the final disparity outputs. The dense-filled disparity produced the highest number of valid pixels, while the filled disparity was selected for the final 3D reconstruction because it gave a better balance between coverage and stability.
+
+\begin{table}[H]
+\centering
+\caption{Measured disparity statistics from the final rectified stereo run.}
+\label{tab:disp_stats}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Disparity Type} & \textbf{Valid Pixels} & \textbf{Mean} & \textbf{Min} & \textbf{Max} \\
+\midrule
+Raw & 227,932 & 80.92 & 2.00 & 127.00 \\
+WLS & 537,872 & 31.72 & 2.00 & 125.75 \\
+Clean & 462,469 & 36.28 & 5.00 & 123.73 \\
+Filled & 490,458 & 35.17 & 5.18 & 123.25 \\
+Dense & 626,670 & 74.87 & 2.00 & 127.00 \\
+Dense-filled & 755,185 & 66.11 & 2.00 & 127.00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\safeimage{report_assets_final/stereo_depth/disparity_filled_color.jpg}{0.78}{Filled disparity map used for the selected final reconstruction.}
+
+\safeimage{report_assets_final/stereo_depth/disparity_dense_filled_color.jpg}{0.78}{Dense-filled disparity map. This version has higher coverage but can include more unstable regions.}
+
+The raw disparity produced only 227,932 valid pixels, whereas WLS filtering increased valid support to 537,872 pixels. The filled disparity produced 490,458 valid pixels and was used as the main reconstruction input. Dense-filled disparity reached 755,185 valid pixels, but higher density does not automatically mean better geometry because low-confidence regions may introduce noisy 3D points.
+
+% ============================================================
+\section{Depth and 3D Reconstruction}
+% ============================================================
+
+\subsection{Reprojection Matrix}
+
+The reprojection matrix used for disparity-to-3D conversion was:
+\begin{equation}
+\mat{Q}=\begin{bmatrix}
+1 & 0 & 0 & -1082.71 \\
+0 & 1 & 0 & -313.85 \\
+0 & 0 & 0 & 1236.71 \\
+0 & 0 & -0.0226 & 0
+\end{bmatrix}.
+\end{equation}
+This matrix maps image position and disparity into homogeneous 3D coordinates. The value \(-0.0226\) in the final row corresponds approximately to the inverse baseline term used by the rectified stereo geometry.
+
+\subsection{Final Reconstruction Command}
+
+The final raw-control reconstruction was produced using:
+\begin{verbatim}
+python scripts\reconstruct_3d.py --depth filled --min-disp 5 \
+--z-min 0 --z-max 10000 --no-z-trim --no-filter --point-size 5
+\end{verbatim}
+This command was selected because it reports the true usable coverage without aggressive statistical trimming.
+
+\subsection{Point Cloud Coverage}
+
+\begin{table}[H]
+\centering
+\caption{Coverage report for the selected filled-disparity reconstruction.}
+\label{tab:coverage}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Stage} & \textbf{Valid Points} & \textbf{Coverage} \\
+\midrule
+Initial valid disparity & 480,140 / 921,600 & 52.10\% \\
+After gradient filter & 465,590 / 921,600 & 50.52\% \\
+Before hard Z clamp & 465,590 / 921,600 & 50.52\% \\
+After hard Z clamp & 463,960 / 921,600 & 50.34\% \\
+After table filter & 449,869 / 921,600 & 48.81\% \\
+After Z trim & 449,869 / 921,600 & 48.81\% \\
+After spike removal & 449,869 / 921,600 & 48.81\% \\
+Before cluster & 449,869 / 921,600 & 48.81\% \\
+After cluster & 449,869 / 921,600 & 48.81\% \\
+Before stat filter & 449,869 / 921,600 & 48.81\% \\
+Final point cloud & 449,869 / 921,600 & 48.81\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\safeimage{report_assets/pointcloud/pointcloud_clean_visual.png}{0.72}{Point cloud visualization from the reconstructed stereo depth pipeline.}
+
+The final output was saved as:
+\begin{verbatim}
+outputs/3d_reconstruction/point_cloud_filled_full_roi_no_table_no_cluster.ply
+\end{verbatim}
+The reconstruction retained 449,869 points, which is realistic for a stereo setup with occlusions, reflective or weakly textured regions, and filtering of unreliable disparity values.
+
+% ============================================================
+\section{Comparison of Disparity Variants}
+% ============================================================
+
+The disparity variants show the trade-off between density and geometric reliability. Raw disparity had the lowest valid-pixel count, but also contained strong discontinuities and holes. WLS filtering greatly improved coverage and smoothness by using edge-aware refinement. Filled disparity repaired holes and produced a stable input for 3D reconstruction. Dense and dense-filled disparity increased coverage further, but these maps may include more uncertain points, particularly in weak-texture areas or occlusion boundaries.
+
+\begin{table}[H]
+\centering
+\caption{Interpretation of disparity variants.}
+\label{tab:disp_interpretation}
+\begin{tabular}{p{0.23\textwidth}p{0.34\textwidth}p{0.34\textwidth}}
+\toprule
+\textbf{Variant} & \textbf{Strength} & \textbf{Limitation} \\
+\midrule
+Raw & Preserves original stereo matcher output & Sparse and noisy, with many holes \\
+WLS & Stronger valid support and smoother surfaces & Can oversmooth thin structures \\
+Clean & Removes low-quality values & Lower coverage than WLS \\
+Filled & Balanced coverage and stability & Filled areas may be approximate \\
+Dense & High valid count & More noisy regions possible \\
+Dense-filled & Maximum valid count & Best coverage, but not necessarily best metric accuracy \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For the final report, filled disparity is the most defensible choice because it keeps enough points for a meaningful 3D cloud while avoiding the most aggressive dense completion.
+
+% ============================================================
+\section{Error Analysis}
+% ============================================================
+
+Stereo reconstruction accuracy depends on calibration, rectification, matching, and filtering. The main error sources are summarized below.
+
+\subsection{Calibration Error}
+
+The stereo RMS reprojection error was 0.1711 pixels, which is low. However, calibration errors still propagate into rectification and depth. Small errors in focal length, principal point, or baseline affect the recovered 3D scale.
+
+\subsection{Rectification Error}
+
+Rectification should make corresponding points share the same vertical coordinate. If vertical misalignment remains, the matcher may compare the wrong pixels. The saved rectification images with horizontal guide lines were therefore important validation outputs.
+
+\subsection{Disparity Error}
+
+Depth is computed using \(Z=fB/d\), so disparity errors are nonlinear in depth. The sensitivity is
+\begin{equation}
+    \Delta Z \approx \left|\frac{\partial Z}{\partial d}\right|\Delta d
+    = \frac{fB}{d^2}\Delta d.
+\end{equation}
+This shows that depth uncertainty increases when disparity is small. Farther points are therefore more sensitive to matching noise.
+
+\subsection{Scene and Matching Limitations}
+
+Stereo matching is difficult in textureless regions, repetitive patterns, occlusions, reflections, and object boundaries. These errors appear as holes, spikes, or incorrect surfaces in the point cloud. Filtering improves visual quality but reduces density.
+
+% ============================================================
+\section{Discussion}
+% ============================================================
+
+The final pipeline produced a usable stereo reconstruction with strong calibration accuracy and nearly half-image valid 3D coverage. The calibration stage was reliable, using 32 valid checkerboard pairs and achieving a stereo RMS error below 0.2 pixels. The rectified projection matrices were metrically consistent with the estimated baseline, confirming that the geometry was suitable for depth recovery.
+
+The disparity results show that refinement is necessary. Raw disparity alone was too sparse, with 227,932 valid pixels. WLS filtering improved this significantly to 537,872 valid pixels. The filled disparity map then provided the selected reconstruction input, producing 449,869 final 3D points after filtering and hard depth limits.
+
+A key result is that the densest disparity map is not automatically the best for reconstruction. Dense-filled disparity produced 755,185 valid pixels, but aggressive density may fill uncertain regions. For a report focused on correctness rather than only visual fullness, the filled disparity reconstruction is more defensible because it balances coverage with stability.
+
+Overall, the main limitation is not the calibration stage; it is the stereo correspondence stage. Once incorrect disparity values are produced, depth and 3D points become incorrect. This is why the project evaluated multiple disparity variants and reported coverage after each filtering stage.
+
+% ============================================================
+\section{Conclusion}
+% ============================================================
+
+This project implemented a full stereo vision pipeline for 3D reconstruction. Calibration produced accurate intrinsic and extrinsic parameters, rectification aligned the stereo images, disparity maps were estimated and refined, and a final point cloud was generated using the reprojection matrix. The selected reconstruction retained 449,869 valid 3D points, corresponding to 48.81\% of the image grid.
+
+The most important findings are:
+\begin{itemize}
+    \item accurate calibration and rectification are essential before any dense reconstruction;
+    \item WLS and filling improve disparity coverage, but excessive densification can introduce noise;
+    \item final 3D quality depends mainly on disparity correctness;
+    \item the measured calibration and projection matrices provide a complete metric basis for the reconstruction.
+\end{itemize}
+
+Future work could improve the pipeline using learning-based stereo matching, multi-view fusion, meshing, and quantitative comparison against ground-truth depth or known object dimensions.
+
+% ============================================================
+\section*{Reproducibility Commands}
+\addcontentsline{toc}{section}{Reproducibility Commands}
+% ============================================================
+
+\begin{verbatim}
+python scripts\calibrate_stereo_metric.py
+python scripts\stereo_depth_rectified.py
+python scripts\reconstruct_3d.py --depth filled --min-disp 5 \
+--z-min 0 --z-max 10000 --no-z-trim --no-filter --point-size 5
+\end{verbatim}
+
+% ============================================================
+\section*{Report Asset Locations}
+\addcontentsline{toc}{section}{Report Asset Locations}
+% ============================================================
+
+\begin{itemize}
+    \item Calibration and rectification: \texttt{report\_assets\_final/calibration/}
+    \item Stereo depth and disparity: \texttt{report\_assets\_final/stereo\_depth/}
+    \item Point cloud image: \texttt{report\_assets/pointcloud/}
+    \item Bibliography file: \texttt{references.bib}
+\end{itemize}
+
+\FloatBarrier
+\bibliographystyle{ieeetr}
+\bibliography{references}
+
+\end{document}
