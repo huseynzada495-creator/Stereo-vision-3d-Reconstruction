@@ -23,3 +23,8 @@ Thumbs.db
 outputs/*
 !outputs/3d_reconstruction/
 !outputs/3d_reconstruction/***
+outputs/*
+!outputs/3d_reconstruction/
+!outputs/3d_reconstruction/**
+!outputs/final_best_3d/
+!outputs/final_best_3d/**
