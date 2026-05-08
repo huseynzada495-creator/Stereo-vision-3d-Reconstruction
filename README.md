@@ -194,7 +194,7 @@ Individual steps can be executed from the `scripts/` directory.
 
 ## 10. Author
 
-Huseynzada
+Petrick and Huseynzada
 
 ---
 
