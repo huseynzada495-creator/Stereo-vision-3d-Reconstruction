@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 .venv/
+.venv_clean/
 
 # VS Code
 .vscode/*.log
