@@ -19,3 +19,7 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+# Outputs
+outputs/*
+!outputs/3d_reconstruction/
+!outputs/3d_reconstruction/***
